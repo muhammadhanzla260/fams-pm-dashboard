@@ -101,7 +101,7 @@ export default function MemberReport({ members, from, to }: { members: string[];
                     <div
                       key={s.status}
                       style={{
-                        display: "flex", alignItems: "center", gap: 12, padding: "9px 12px",
+                        display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", flexWrap: "wrap",
                         border: "0.5px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface)",
                       }}
                     >
@@ -116,6 +116,24 @@ export default function MemberReport({ members, from, to }: { members: string[];
                       <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                         {s.count} work item{s.count === 1 ? "" : "s"}
                       </span>
+                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+                        {s.tickets.map((t) => (
+                          <a
+                            key={t.key}
+                            href={t.url}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            title={`Open ${t.key} in Jira`}
+                            style={{
+                              fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)",
+                              border: "0.5px solid var(--border-strong)", borderRadius: 4, padding: "2px 7px",
+                              whiteSpace: "nowrap", textDecoration: "none",
+                            }}
+                          >
+                            {t.key}
+                          </a>
+                        ))}
+                      </div>
                     </div>
                   );
                 })}

@@ -346,8 +346,20 @@ export type AssigneeReport = {
   completed: number; // of those, reached Done
   logged_hrs: number; // Time Tracking logged total on those tickets
   est_hrs: number; // Time Tracking original estimate on those tickets
-  status_breakdown: { status: string; count: number; category: string }[]; // by exact status name
+  status_breakdown: StatusBreakdownEntry[]; // by exact status name
 };
+
+// One entry per distinct status; `tickets` links each ticket badge straight to Jira.
+export type StatusBreakdownEntry = {
+  status: string;
+  count: number;
+  category: string;
+  tickets: { key: string; url: string }[];
+};
+
+function jiraBrowseUrl(key: string): string {
+  return `${(process.env.JIRA_BASE_URL ?? "").replace(/\/$/, "")}/browse/${key}`;
+}
 
 export async function listMembers(): Promise<string[]> {
   const rows = await query<{ member: string }>(
@@ -376,7 +388,7 @@ export async function getAssigneeReport(member: string, from: string, to: string
 
   const issues = await searchAll(jql, ["status", "timeoriginalestimate", "timespent"]);
   let in_progress = 0, completed = 0, est_s = 0, logged_s = 0;
-  const byStatus = new Map<string, { count: number; category: string }>();
+  const byStatus = new Map<string, { count: number; category: string; keys: string[] }>();
   for (const it of issues) {
     const name = it.fields?.status?.name ?? "Unknown";
     const cat = it.fields?.status?.statusCategory?.key ?? "new";
@@ -384,14 +396,20 @@ export async function getAssigneeReport(member: string, from: string, to: string
     else if (cat === "done") completed++;
     est_s += Number(it.fields?.timeoriginalestimate) || 0;
     logged_s += Number(it.fields?.timespent) || 0;
-    const e = byStatus.get(name) ?? { count: 0, category: cat };
+    const e = byStatus.get(name) ?? { count: 0, category: cat, keys: [] as string[] };
     e.count++;
+    e.keys.push(it.key);
     byStatus.set(name, e);
   }
   // Order like a board: To Do → In Progress → Done category, then by count within.
   const rank: Record<string, number> = { new: 0, indeterminate: 1, done: 2 };
-  const status_breakdown = [...byStatus.entries()]
-    .map(([status, v]) => ({ status, count: v.count, category: v.category }))
+  const status_breakdown: StatusBreakdownEntry[] = [...byStatus.entries()]
+    .map(([status, v]) => ({
+      status,
+      count: v.count,
+      category: v.category,
+      tickets: v.keys.map((key) => ({ key, url: jiraBrowseUrl(key) })),
+    }))
     .sort((a, b) => (rank[a.category] - rank[b.category]) || b.count - a.count);
 
   return {
@@ -422,7 +440,7 @@ export type QaReport = {
   tested_preview: number;
   tested_prod: number;
   delivered: number; // of tested tickets, reached Released/Deployed
-  status_breakdown: { status: string; count: number; category: string }[];
+  status_breakdown: StatusBreakdownEntry[];
 };
 
 export async function getQaReport(member: string, from: string, to: string): Promise<QaReport> {
@@ -442,7 +460,7 @@ export async function getQaReport(member: string, from: string, to: string): Pro
 
   const inField = (v: any) => Array.isArray(v) && v.some((u) => ids.includes(typeof u === "string" ? u : u?.accountId));
   let tested_dev = 0, tested_preview = 0, tested_prod = 0;
-  const byStatus = new Map<string, { count: number; category: string }>();
+  const byStatus = new Map<string, { count: number; category: string; keys: string[] }>();
   for (const it of issues) {
     const f = it.fields ?? {};
     if (inField(f[QA_STAGE_FIELDS.dev])) tested_dev++;
@@ -450,13 +468,19 @@ export async function getQaReport(member: string, from: string, to: string): Pro
     if (inField(f[QA_STAGE_FIELDS.prod])) tested_prod++;
     const name = f.status?.name ?? "Unknown";
     const cat = f.status?.statusCategory?.key ?? "new";
-    const e = byStatus.get(name) ?? { count: 0, category: cat };
+    const e = byStatus.get(name) ?? { count: 0, category: cat, keys: [] as string[] };
     e.count++;
+    e.keys.push(it.key);
     byStatus.set(name, e);
   }
   const rank: Record<string, number> = { new: 0, indeterminate: 1, done: 2 };
-  const status_breakdown = [...byStatus.entries()]
-    .map(([status, v]) => ({ status, count: v.count, category: v.category }))
+  const status_breakdown: StatusBreakdownEntry[] = [...byStatus.entries()]
+    .map(([status, v]) => ({
+      status,
+      count: v.count,
+      category: v.category,
+      tickets: v.keys.map((key) => ({ key, url: jiraBrowseUrl(key) })),
+    }))
     .sort((a, b) => (rank[a.category] - rank[b.category]) || b.count - a.count);
 
   return { kind: "qa", member, from, to, tested_total: issues.length, tested_dev, tested_preview, tested_prod, delivered: deliveredList.length, status_breakdown };
