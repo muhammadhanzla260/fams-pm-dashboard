@@ -1,7 +1,6 @@
 import { getThroughput, getStatusMix, listMembers } from "@/lib/metrics";
 import ThroughputChart from "@/components/ThroughputChart";
 import StatusDonut from "@/components/StatusDonut";
-import SprintMetricsSection from "@/components/SprintMetrics";
 import RefreshTimer from "@/components/RefreshTimer";
 import Reports from "@/components/Reports";
 
@@ -44,8 +43,6 @@ export default async function Page() {
             <StatusDonut data={statusMix} />
           </div>
         </div>
-
-        <SprintMetricsSection />
       </Reports>
     </main>
   );

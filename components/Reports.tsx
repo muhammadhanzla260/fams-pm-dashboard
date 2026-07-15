@@ -4,6 +4,7 @@ import { useState } from "react";
 import MemberReport from "./MemberReport";
 import TeamSummaryCards from "./TeamSummary";
 import TeamTables from "./TeamTables";
+import DeliveryMetricsSection from "./DeliveryMetrics";
 
 const inputStyle: React.CSSProperties = {
   background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border-strong)",
@@ -62,6 +63,7 @@ export default function Reports({ members, children }: { members: string[]; chil
       <MemberReport members={members} from={from} to={to} />
       <TeamSummaryCards from={from} to={to} />
       {children}
+      <DeliveryMetricsSection from={from} to={to} />
       <TeamTables from={from} to={to} />
     </>
   );

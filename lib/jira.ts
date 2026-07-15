@@ -111,29 +111,6 @@ export async function searchAll(jql: string, fields: string[]): Promise<any[]> {
   return out;
 }
 
-// All sprints on the FAMS board (Agile API). state=active,future,closed so future sprints
-// appear automatically. Board id is configurable (default 1569 = FAMS v5 Scrum Board).
-export type SprintInfo = { id: number; name: string; state: string; startDate?: string; endDate?: string };
-export async function listSprints(): Promise<SprintInfo[]> {
-  const boardId = process.env.JIRA_SPRINT_BOARD_ID || "1569";
-  const all: any[] = [];
-  let startAt = 0;
-  while (true) {
-    const data = await jiraGet(`/rest/agile/1.0/board/${boardId}/sprint?state=active,future,closed&startAt=${startAt}&maxResults=50`);
-    all.push(...(data.values ?? []));
-    if (data.isLast || !(data.values?.length)) break;
-    startAt += data.values.length;
-  }
-  const num = (n: string) => {
-    const m = n.match(/(\d+)\.(\d+)/);
-    return m ? Number(m[1]) * 1000 + Number(m[2]) : 0;
-  };
-  return all
-    .filter((s) => /FAMS Sprint/i.test(s.name))
-    .map((s) => ({ id: s.id, name: s.name, state: s.state, startDate: s.startDate, endDate: s.endDate }))
-    .sort((a, b) => num(b.name) - num(a.name)); // newest sprint first
-}
-
 // Like searchAll but expands the (bulk) changelog — for cycle-time derivation.
 export async function searchWithChangelog(jql: string, fields: string[]): Promise<any[]> {
   const out: any[] = [];

@@ -25,7 +25,6 @@ JIRA_EMAIL=you@fams.com
 JIRA_API_TOKEN=__atlassian_token__
 JIRA_PROJECTS=FM
 JIRA_SCOPE_JQL=created >= -26w     # scope for the DB-backed Throughput/Work-mix charts
-JIRA_SPRINT_BOARD_ID=1569          # FAMS v5 Scrum Board (sprint dropdown)
 WEBHOOK_SECRET=__long_random__
 CRON_SECRET=__long_random__
 ```
@@ -36,7 +35,7 @@ npm install
 npm run db:setup        # creates tables + views + seeds the Dev/QA roster
 npm run sync -- --full  # backfills issues (only needed for the Throughput + Work-mix charts)
 ```
-> The per-member report, team totals, Delivery metrics (sprint), and Dev/QA tables all read
+> The per-member report, team totals, Delivery metrics, and Dev/QA tables all read
 > **live from Jira** and do **not** depend on the backfill — they only need the roster
 > (`team_members`), which `db:setup` seeds. The backfill matters only for the two
 > DB-backed charts (Throughput, Work mix).

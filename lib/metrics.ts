@@ -215,6 +215,7 @@ export type QaRow = {
   tested_total: number;
   tested_dev: number;
   tested_preview: number;
+  tested_staging: number;
   tested_prod: number;
   delivered: number;
 };
@@ -256,36 +257,36 @@ export async function getTeamTables(from: string, to: string): Promise<TeamTable
     dev.sort((a, b) => b.assigned_total - a.assigned_total || b.completed - a.completed);
   }
 
-  // ---- QA: by "tested by" (Tested on Dev/Preview/Prod) ----
+  // ---- QA: by "tested by" (Tested on Dev/Preview/Stag/Prod) ----
   const qaIds = roster.filter((r) => r.team === "QA").map((r) => r.account_id);
   const qaIdList = qaIds.map((i) => `"${i}"`).join(", ");
-  const F = ["12432", "12366", "12433"];
+  const F = ["12432", "12366", "12433", "12499"];
   const qa: QaRow[] = [];
   if (qaIds.length) {
     const orClause = F.map((f) => `cf[${f}] IN (${qaIdList})`).join(" OR ");
-    const fields = ["customfield_12432", "customfield_12366", "customfield_12433"];
+    const fields = ["customfield_12432", "customfield_12366", "customfield_12433", "customfield_12499"];
     const [issues, delivered] = await Promise.all([
       searchAll(`project IN (${projects}) AND ${win} AND (${orClause})`, ["status", ...fields]),
       searchAll(`project IN (${projects}) AND ${win} AND (${orClause}) AND status WAS IN ("Released","Deployed")`, fields),
     ]);
     const map = new Map<string, any>();
-    qaIds.forEach((id) => map.set(id, { id, total: 0, dev: 0, preview: 0, prod: 0, delivered: 0 }));
+    qaIds.forEach((id) => map.set(id, { id, total: 0, dev: 0, preview: 0, staging: 0, prod: 0, delivered: 0 }));
     for (const it of issues) {
       const f = it.fields ?? {};
       for (const id of qaIds) {
-        const d = has(f.customfield_12432, id), p = has(f.customfield_12366, id), pr = has(f.customfield_12433, id);
-        if (d || p || pr) { const m = map.get(id); m.total++; if (d) m.dev++; if (p) m.preview++; if (pr) m.prod++; }
+        const d = has(f.customfield_12432, id), p = has(f.customfield_12366, id), s = has(f.customfield_12499, id), pr = has(f.customfield_12433, id);
+        if (d || p || s || pr) { const m = map.get(id); m.total++; if (d) m.dev++; if (p) m.preview++; if (s) m.staging++; if (pr) m.prod++; }
       }
     }
     for (const it of delivered) {
       const f = it.fields ?? {};
-      for (const id of qaIds) if (has(f.customfield_12432, id) || has(f.customfield_12366, id) || has(f.customfield_12433, id)) map.get(id).delivered++;
+      for (const id of qaIds) if (has(f.customfield_12432, id) || has(f.customfield_12366, id) || has(f.customfield_12499, id) || has(f.customfield_12433, id)) map.get(id).delivered++;
     }
     const byName = new Map<string, QaRow>();
     for (const [id, m] of map) {
       const n = nameOf.get(id) ?? id;
-      const r = byName.get(n) ?? { member: n, tested_total: 0, tested_dev: 0, tested_preview: 0, tested_prod: 0, delivered: 0 };
-      r.tested_total += m.total; r.tested_dev += m.dev; r.tested_preview += m.preview; r.tested_prod += m.prod; r.delivered += m.delivered;
+      const r = byName.get(n) ?? { member: n, tested_total: 0, tested_dev: 0, tested_preview: 0, tested_staging: 0, tested_prod: 0, delivered: 0 };
+      r.tested_total += m.total; r.tested_dev += m.dev; r.tested_preview += m.preview; r.tested_staging += m.staging; r.tested_prod += m.prod; r.delivered += m.delivered;
       byName.set(n, r);
     }
     qa.push(...[...byName.values()].sort((a, b) => b.tested_total - a.tested_total));
@@ -294,24 +295,26 @@ export async function getTeamTables(from: string, to: string): Promise<TeamTable
   return { dev, qa };
 }
 
-// ---- Sprint delivery metrics (live, sprint-scoped — independent of the date range) ----
+// ---- Delivery metrics (live, date-ranged — this team doesn't run sprints) -------------
 
-export type SprintMetrics = {
-  sprint_id: number;
-  tickets: number; // team tickets in the sprint
+export type DeliveryMetrics = {
+  from: string;
+  to: string;
+  tickets: number; // team tickets worked on in range
   delivered: number; // reached Released / Deployed
-  logged_hrs: number; // total man-hours logged on sprint tickets
-  est_hrs: number; // total original estimate on sprint tickets
+  logged_hrs: number; // total man-hours logged on those tickets
+  est_hrs: number; // total original estimate on those tickets
   person_days: number; // time invested = logged / 6h
 };
 
-export async function getSprintMetrics(sprintId: number): Promise<SprintMetrics> {
+export async function getDeliveryMetrics(from: string, to: string): Promise<DeliveryMetrics> {
   const ids = (await query<{ account_id: string }>(`SELECT account_id FROM team_members`)).map((r) => r.account_id);
-  const empty: SprintMetrics = { sprint_id: sprintId, tickets: 0, delivered: 0, logged_hrs: 0, est_hrs: 0, person_days: 0 };
+  const empty: DeliveryMetrics = { from, to, tickets: 0, delivered: 0, logged_hrs: 0, est_hrs: 0, person_days: 0 };
   if (!ids.length) return empty;
 
+  const projects = (process.env.JIRA_PROJECTS ?? "FM").split(",").map((s) => s.trim()).filter(Boolean).join(", ");
   const idList = ids.map((i) => `"${i}"`).join(", ");
-  const jql = `sprint = ${sprintId} AND assignee IN (${idList})`;
+  const jql = `project IN (${projects}) AND worklogDate >= "${from}" AND worklogDate <= "${to}" AND timespent > 0 AND assignee IN (${idList})`;
 
   const [issues, deliveredList] = await Promise.all([
     searchAll(jql, ["timespent", "timeoriginalestimate"]),
@@ -325,7 +328,8 @@ export async function getSprintMetrics(sprintId: number): Promise<SprintMetrics>
   }
 
   return {
-    sprint_id: sprintId,
+    from,
+    to,
     tickets: issues.length,
     delivered: deliveredList.length,
     logged_hrs: round1(logged_s / 3600),
@@ -473,7 +477,12 @@ export async function getAssigneeReport(member: string, from: string, to: string
 // ---- QA member report — measured by "Tested by" (Tested on Dev/Preview/Prod) ----------
 // QA people rarely own tickets; their output is who TESTED a ticket. A ticket counts once
 // (distinct) if the member appears in any of the three stage fields.
-const QA_STAGE_FIELDS = { dev: "customfield_12432", preview: "customfield_12366", prod: "customfield_12433" };
+const QA_STAGE_FIELDS = {
+  dev: "customfield_12432",
+  preview: "customfield_12366",
+  prod: "customfield_12433",
+  staging: "customfield_12499",
+};
 
 export type QaReport = {
   kind: "qa";
@@ -483,6 +492,7 @@ export type QaReport = {
   tested_total: number; // distinct tickets tested at any stage
   tested_dev: number;
   tested_preview: number;
+  tested_staging: number;
   tested_prod: number;
   delivered: number; // of tested tickets, reached Released/Deployed
   status_breakdown: StatusBreakdownEntry[];
@@ -490,7 +500,7 @@ export type QaReport = {
 
 export async function getQaReport(member: string, from: string, to: string): Promise<QaReport> {
   const ids = (await query<{ account_id: string }>(`SELECT account_id FROM team_members WHERE display_name = $1`, [member])).map((r) => r.account_id);
-  const empty: QaReport = { kind: "qa", member, from, to, tested_total: 0, tested_dev: 0, tested_preview: 0, tested_prod: 0, delivered: 0, status_breakdown: [] };
+  const empty: QaReport = { kind: "qa", member, from, to, tested_total: 0, tested_dev: 0, tested_preview: 0, tested_staging: 0, tested_prod: 0, delivered: 0, status_breakdown: [] };
   if (!ids.length) return empty;
 
   const projects = (process.env.JIRA_PROJECTS ?? "FM").split(",").map((s) => s.trim()).filter(Boolean).join(", ");
@@ -499,18 +509,19 @@ export async function getQaReport(member: string, from: string, to: string): Pro
   const base = `project IN (${projects}) AND created >= "${from}" AND created <= "${to}" AND (${orClauses})`;
 
   const [issues, deliveredList] = await Promise.all([
-    searchAll(base, ["status", QA_STAGE_FIELDS.dev, QA_STAGE_FIELDS.preview, QA_STAGE_FIELDS.prod]),
+    searchAll(base, ["status", QA_STAGE_FIELDS.dev, QA_STAGE_FIELDS.preview, QA_STAGE_FIELDS.prod, QA_STAGE_FIELDS.staging]),
     searchAll(`${base} AND status WAS IN ("Released","Deployed")`, ["key"]),
   ]);
 
   const inField = (v: any) => Array.isArray(v) && v.some((u) => ids.includes(typeof u === "string" ? u : u?.accountId));
-  let tested_dev = 0, tested_preview = 0, tested_prod = 0;
+  let tested_dev = 0, tested_preview = 0, tested_prod = 0, tested_staging = 0;
   const byStatus = new Map<string, { count: number; category: string; keys: string[] }>();
   for (const it of issues) {
     const f = it.fields ?? {};
     if (inField(f[QA_STAGE_FIELDS.dev])) tested_dev++;
     if (inField(f[QA_STAGE_FIELDS.preview])) tested_preview++;
     if (inField(f[QA_STAGE_FIELDS.prod])) tested_prod++;
+    if (inField(f[QA_STAGE_FIELDS.staging])) tested_staging++;
     const name = f.status?.name ?? "Unknown";
     const cat = f.status?.statusCategory?.key ?? "new";
     const e = byStatus.get(name) ?? { count: 0, category: cat, keys: [] as string[] };
@@ -528,5 +539,5 @@ export async function getQaReport(member: string, from: string, to: string): Pro
     }))
     .sort((a, b) => (rank[a.category] - rank[b.category]) || b.count - a.count);
 
-  return { kind: "qa", member, from, to, tested_total: issues.length, tested_dev, tested_preview, tested_prod, delivered: deliveredList.length, status_breakdown };
+  return { kind: "qa", member, from, to, tested_total: issues.length, tested_dev, tested_preview, tested_staging, tested_prod, delivered: deliveredList.length, status_breakdown };
 }

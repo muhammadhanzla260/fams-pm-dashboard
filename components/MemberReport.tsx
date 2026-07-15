@@ -77,6 +77,7 @@ export default function MemberReport({ members, from, to }: { members: string[];
         { label: "Tickets tested", value: data.tested_total, sub: "any stage, created in range" },
         { label: "Tested on Dev", value: data.tested_dev, sub: "stage: dev" },
         { label: "Tested on Preview", value: data.tested_preview, sub: "stage: preview" },
+        { label: "Tested on Staging", value: data.tested_staging, sub: "stage: staging / UAT" },
         { label: "Tested on Prod", value: data.tested_prod, sub: "stage: prod" },
         { label: "Delivered", value: data.delivered, sub: "of tested, reached Released / Deployed" },
       ]

@@ -98,7 +98,7 @@ export default function TeamTables({ from, to }: { from: string; to: string }) {
         ) : (
           <table>
             <thead>
-              <tr><th>Member</th><th>Tested</th><th>Dev</th><th>Preview</th><th>Prod</th><th>Delivered</th></tr>
+              <tr><th>Member</th><th>Tested</th><th>Dev</th><th>Preview</th><th>Staging</th><th>Prod</th><th>Delivered</th></tr>
             </thead>
             <tbody>
               {data.qa.map((m: QaRow) => (
@@ -107,6 +107,7 @@ export default function TeamTables({ from, to }: { from: string; to: string }) {
                   <td>{m.tested_total}</td>
                   <td>{m.tested_dev}</td>
                   <td>{m.tested_preview}</td>
+                  <td>{m.tested_staging}</td>
                   <td>{m.tested_prod}</td>
                   <td>{m.delivered}</td>
                 </tr>
@@ -118,6 +119,7 @@ export default function TeamTables({ from, to }: { from: string; to: string }) {
                 <td>{sum(data.qa, "tested_total")}</td>
                 <td>{sum(data.qa, "tested_dev")}</td>
                 <td>{sum(data.qa, "tested_preview")}</td>
+                <td>{sum(data.qa, "tested_staging")}</td>
                 <td>{sum(data.qa, "tested_prod")}</td>
                 <td>{sum(data.qa, "delivered")}</td>
               </tr>
