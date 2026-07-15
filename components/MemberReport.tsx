@@ -34,6 +34,49 @@ function TicketBadges({ tickets }: { tickets: { key: string; url: string }[] }) 
   );
 }
 
+// Collapsed by default: just the summary row (status/label + count). Click to reveal the
+// ticket-level detail (linked to Jira) without cluttering the default view.
+function ExpandableRow({
+  summary,
+  children,
+  open,
+  onToggle,
+}: {
+  summary: React.ReactNode;
+  children: React.ReactNode;
+  open: boolean;
+  onToggle: () => void;
+}) {
+  return (
+    <div style={{ border: "0.5px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface)" }}>
+      <div
+        onClick={onToggle}
+        title={open ? "Click to collapse" : "Click to see the tickets"}
+        style={{ display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", flexWrap: "wrap", cursor: "pointer" }}
+      >
+        <span style={{ fontSize: 10, color: "var(--text-tertiary)", width: 10, display: "inline-block" }}>
+          {open ? "▾" : "▸"}
+        </span>
+        {summary}
+      </div>
+      {open && <div style={{ padding: "0 12px 10px 32px" }}>{children}</div>}
+    </div>
+  );
+}
+
+function useExpanded() {
+  const [expanded, setExpanded] = useState<Set<string>>(new Set());
+  const isOpen = (key: string) => expanded.has(key);
+  const toggle = (key: string) =>
+    setExpanded((prev) => {
+      const next = new Set(prev);
+      next.has(key) ? next.delete(key) : next.add(key);
+      return next;
+    });
+  const open = (key: string) => setExpanded((prev) => new Set(prev).add(key));
+  return { isOpen, toggle, open };
+}
+
 // Dates come from the shared dashboard filter (props). Member is selected here.
 // The data-fetching + rendering logic is unchanged from the verified version.
 export default function MemberReport({ members, from, to }: { members: string[]; from: string; to: string }) {
@@ -44,6 +87,7 @@ export default function MemberReport({ members, from, to }: { members: string[];
   const reqId = useRef(0);
   const bugsRef = useRef<HTMLDivElement>(null);
   const reopenedRef = useRef<HTMLDivElement>(null);
+  const rows = useExpanded();
 
   const run = useCallback(async () => {
     if (!member) return;
@@ -67,8 +111,10 @@ export default function MemberReport({ members, from, to }: { members: string[];
     run();
   }, [run]);
 
-  const scrollTo = (ref: React.RefObject<HTMLDivElement>) => () =>
+  const jumpTo = (ref: React.RefObject<HTMLDivElement>, key: string) => () => {
+    rows.open(key);
     ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  };
 
   const cards = !data
     ? []
@@ -87,8 +133,8 @@ export default function MemberReport({ members, from, to }: { members: string[];
         { label: "Completed", value: data.completed, sub: "of those, reached Done" },
         { label: "Logged hrs", value: `${data.logged_hrs}h`, sub: "on those tickets" },
         { label: "Est. hrs", value: `${data.est_hrs}h`, sub: "on those tickets" },
-        { label: "Bugs", value: data.bugs_total, sub: "issuetype = Bug, assigned", onClick: data.bugs_total ? scrollTo(bugsRef) : undefined },
-        { label: "Reopened", value: `${data.reopened_total} (${data.reopen_rate}%)`, sub: "events this range · % of completed", onClick: data.reopened_tickets.length ? scrollTo(reopenedRef) : undefined },
+        { label: "Bugs", value: data.bugs_total, sub: "issuetype = Bug, assigned", onClick: data.bugs_total ? jumpTo(bugsRef, "bugs") : undefined },
+        { label: "Reopened", value: `${data.reopened_total} (${data.reopen_rate}%)`, sub: "events this range · % of completed", onClick: data.reopened_tickets.length ? jumpTo(reopenedRef, "reopened") : undefined },
       ];
 
   return (
@@ -130,36 +176,44 @@ export default function MemberReport({ members, from, to }: { members: string[];
 
           {data.kind !== "qa" && data.bugs_total > 0 && (
             <div ref={bugsRef} style={{ marginTop: 18 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>
-                Bugs reported ({data.bugs_total})
-              </div>
-              <div style={{ padding: "9px 12px", border: "0.5px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface)" }}>
+              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Bugs reported</div>
+              <ExpandableRow
+                open={rows.isOpen("bugs")}
+                onToggle={() => rows.toggle("bugs")}
+                summary={
+                  <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                    {data.bugs_total} bug{data.bugs_total === 1 ? "" : "s"}
+                  </span>
+                }
+              >
                 <TicketBadges tickets={data.bugs} />
-              </div>
+              </ExpandableRow>
             </div>
           )}
 
           {data.kind !== "qa" && data.reopened_tickets.length > 0 && (
             <div ref={reopenedRef} style={{ marginTop: 18 }}>
-              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>
-                Reopened tickets ({data.reopened_total} event{data.reopened_total === 1 ? "" : "s"} · {data.reopen_rate}% of completed)
-              </div>
-              <div style={{ display: "grid", gap: 8 }}>
-                {data.reopened_tickets.map((t) => (
-                  <div
-                    key={t.key}
-                    style={{
-                      display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", flexWrap: "wrap",
-                      border: "0.5px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface)",
-                    }}
-                  >
-                    <TicketBadges tickets={[{ key: t.key, url: t.url }]} />
-                    <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                      reopened {t.reopen_count}x · last {new Date(t.last_reopened_at).toISOString().slice(0, 10)}
-                    </span>
-                  </div>
-                ))}
-              </div>
+              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>Reopened tickets</div>
+              <ExpandableRow
+                open={rows.isOpen("reopened")}
+                onToggle={() => rows.toggle("reopened")}
+                summary={
+                  <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                    {data.reopened_total} event{data.reopened_total === 1 ? "" : "s"} · {data.reopen_rate}% of completed
+                  </span>
+                }
+              >
+                <div style={{ display: "grid", gap: 8 }}>
+                  {data.reopened_tickets.map((t) => (
+                    <div key={t.key} style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
+                      <TicketBadges tickets={[{ key: t.key, url: t.url }]} />
+                      <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                        reopened {t.reopen_count}x · last {new Date(t.last_reopened_at).toISOString().slice(0, 10)}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </ExpandableRow>
             </div>
           )}
 
@@ -170,27 +224,30 @@ export default function MemberReport({ members, from, to }: { members: string[];
                 {data.status_breakdown.map((s) => {
                   const color =
                     s.category === "done" ? "var(--green)" : s.category === "indeterminate" ? "var(--blue)" : "var(--text-3)";
+                  const rowKey = `status:${s.status}`;
                   return (
-                    <div
+                    <ExpandableRow
                       key={s.status}
-                      style={{
-                        display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", flexWrap: "wrap",
-                        border: "0.5px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface)",
-                      }}
+                      open={rows.isOpen(rowKey)}
+                      onToggle={() => rows.toggle(rowKey)}
+                      summary={
+                        <>
+                          <span
+                            style={{
+                              fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase",
+                              color, border: `1px solid ${color}`, borderRadius: 4, padding: "2px 8px", whiteSpace: "nowrap",
+                            }}
+                          >
+                            {s.status}
+                          </span>
+                          <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                            {s.count} work item{s.count === 1 ? "" : "s"}
+                          </span>
+                        </>
+                      }
                     >
-                      <span
-                        style={{
-                          fontSize: 11, fontWeight: 600, letterSpacing: "0.04em", textTransform: "uppercase",
-                          color, border: `1px solid ${color}`, borderRadius: 4, padding: "2px 8px", whiteSpace: "nowrap",
-                        }}
-                      >
-                        {s.status}
-                      </span>
-                      <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
-                        {s.count} work item{s.count === 1 ? "" : "s"}
-                      </span>
                       <TicketBadges tickets={s.tickets} />
-                    </div>
+                    </ExpandableRow>
                   );
                 })}
               </div>
