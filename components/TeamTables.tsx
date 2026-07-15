@@ -1,7 +1,13 @@
 "use client";
 
-import { useEffect, useState, useCallback, useRef } from "react";
+import { Fragment, useEffect, useState, useCallback, useRef } from "react";
 import type { TeamTables, DevRow, QaRow } from "@/lib/metrics";
+import TicketBadges from "./TicketBadges";
+
+type QaField = keyof QaRow["tickets"];
+const QA_FIELD_LABEL: Record<QaField, string> = {
+  total: "Tested", dev: "Dev", preview: "Preview", staging: "Staging", prod: "Prod", delivered: "Delivered",
+};
 
 const AVATAR_COLORS = ["#6366f1", "#10b981", "#3b82f6", "#f59e0b", "#ec4899", "#8b5cf6", "#14b8a6", "#ef4444"];
 function avatarColor(name: string) {
@@ -27,6 +33,9 @@ export default function TeamTables({ from, to }: { from: string; to: string }) {
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const reqId = useRef(0);
+  const [openCell, setOpenCell] = useState<{ member: string; field: QaField } | null>(null);
+  const toggleCell = (member: string, field: QaField) =>
+    setOpenCell((cur) => (cur?.member === member && cur?.field === field ? null : { member, field }));
 
   const run = useCallback(async () => {
     const id = ++reqId.current;
@@ -101,17 +110,41 @@ export default function TeamTables({ from, to }: { from: string; to: string }) {
               <tr><th>Member</th><th>Tested</th><th>Dev</th><th>Preview</th><th>Staging</th><th>Prod</th><th>Delivered</th></tr>
             </thead>
             <tbody>
-              {data.qa.map((m: QaRow) => (
-                <tr key={m.member}>
-                  <td><Person name={m.member} /></td>
-                  <td>{m.tested_total}</td>
-                  <td>{m.tested_dev}</td>
-                  <td>{m.tested_preview}</td>
-                  <td>{m.tested_staging}</td>
-                  <td>{m.tested_prod}</td>
-                  <td>{m.delivered}</td>
-                </tr>
-              ))}
+              {data.qa.map((m: QaRow) => {
+                const cell = (field: QaField, value: number) => (
+                  <td
+                    onClick={() => value > 0 && toggleCell(m.member, field)}
+                    style={value > 0 ? { cursor: "pointer", textDecoration: "underline", textDecorationStyle: "dotted", textDecorationColor: "var(--border-strong)" } : undefined}
+                    title={value > 0 ? "Click to see the tickets" : undefined}
+                  >
+                    {value}
+                  </td>
+                );
+                const open = openCell?.member === m.member ? openCell.field : null;
+                return (
+                  <Fragment key={m.member}>
+                    <tr>
+                      <td><Person name={m.member} /></td>
+                      {cell("total", m.tested_total)}
+                      {cell("dev", m.tested_dev)}
+                      {cell("preview", m.tested_preview)}
+                      {cell("staging", m.tested_staging)}
+                      {cell("prod", m.tested_prod)}
+                      {cell("delivered", m.delivered)}
+                    </tr>
+                    {open && (
+                      <tr>
+                        <td colSpan={7} style={{ background: "var(--surface)" }}>
+                          <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap", padding: "4px 0" }}>
+                            <span className="muted" style={{ fontSize: 12.5, whiteSpace: "nowrap" }}>{QA_FIELD_LABEL[open]}:</span>
+                            <TicketBadges tickets={m.tickets[open]} />
+                          </div>
+                        </td>
+                      </tr>
+                    )}
+                  </Fragment>
+                );
+              })}
             </tbody>
             <tfoot>
               <tr className="subtotal">

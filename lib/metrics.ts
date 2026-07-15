@@ -218,6 +218,14 @@ export type QaRow = {
   tested_staging: number;
   tested_prod: number;
   delivered: number;
+  tickets: {
+    total: { key: string; url: string }[];
+    dev: { key: string; url: string }[];
+    preview: { key: string; url: string }[];
+    staging: { key: string; url: string }[];
+    prod: { key: string; url: string }[];
+    delivered: { key: string; url: string }[];
+  };
 };
 export type TeamTables = { dev: DevRow[]; qa: QaRow[] };
 
@@ -269,27 +277,53 @@ export async function getTeamTables(from: string, to: string): Promise<TeamTable
       searchAll(`project IN (${projects}) AND ${win} AND (${orClause})`, ["status", ...fields]),
       searchAll(`project IN (${projects}) AND ${win} AND (${orClause}) AND status WAS IN ("Released","Deployed")`, fields),
     ]);
-    const map = new Map<string, any>();
-    qaIds.forEach((id) => map.set(id, { id, total: 0, dev: 0, preview: 0, staging: 0, prod: 0, delivered: 0 }));
+    const emptyKeys = () => ({ total: [] as string[], dev: [] as string[], preview: [] as string[], staging: [] as string[], prod: [] as string[], delivered: [] as string[] });
+    const map = new Map<string, ReturnType<typeof emptyKeys> & { id: string }>();
+    qaIds.forEach((id) => map.set(id, { id, ...emptyKeys() }));
     for (const it of issues) {
       const f = it.fields ?? {};
       for (const id of qaIds) {
         const d = has(f.customfield_12432, id), p = has(f.customfield_12366, id), s = has(f.customfield_12499, id), pr = has(f.customfield_12433, id);
-        if (d || p || s || pr) { const m = map.get(id); m.total++; if (d) m.dev++; if (p) m.preview++; if (s) m.staging++; if (pr) m.prod++; }
+        if (d || p || s || pr) {
+          const m = map.get(id)!;
+          m.total.push(it.key);
+          if (d) m.dev.push(it.key);
+          if (p) m.preview.push(it.key);
+          if (s) m.staging.push(it.key);
+          if (pr) m.prod.push(it.key);
+        }
       }
     }
     for (const it of delivered) {
       const f = it.fields ?? {};
-      for (const id of qaIds) if (has(f.customfield_12432, id) || has(f.customfield_12366, id) || has(f.customfield_12499, id) || has(f.customfield_12433, id)) map.get(id).delivered++;
+      for (const id of qaIds) if (has(f.customfield_12432, id) || has(f.customfield_12366, id) || has(f.customfield_12499, id) || has(f.customfield_12433, id)) map.get(id)!.delivered.push(it.key);
     }
-    const byName = new Map<string, QaRow>();
+    const toBadges = (keys: string[]) => keys.map((key) => ({ key, url: jiraBrowseUrl(key) }));
+    const byName = new Map<string, { keys: ReturnType<typeof emptyKeys> }>();
     for (const [id, m] of map) {
       const n = nameOf.get(id) ?? id;
-      const r = byName.get(n) ?? { member: n, tested_total: 0, tested_dev: 0, tested_preview: 0, tested_staging: 0, tested_prod: 0, delivered: 0 };
-      r.tested_total += m.total; r.tested_dev += m.dev; r.tested_preview += m.preview; r.tested_staging += m.staging; r.tested_prod += m.prod; r.delivered += m.delivered;
+      const r = byName.get(n) ?? { keys: emptyKeys() };
+      r.keys.total.push(...m.total); r.keys.dev.push(...m.dev); r.keys.preview.push(...m.preview);
+      r.keys.staging.push(...m.staging); r.keys.prod.push(...m.prod); r.keys.delivered.push(...m.delivered);
       byName.set(n, r);
     }
-    qa.push(...[...byName.values()].sort((a, b) => b.tested_total - a.tested_total));
+    qa.push(
+      ...[...byName.entries()]
+        .map(([member, { keys }]) => ({
+          member,
+          tested_total: keys.total.length,
+          tested_dev: keys.dev.length,
+          tested_preview: keys.preview.length,
+          tested_staging: keys.staging.length,
+          tested_prod: keys.prod.length,
+          delivered: keys.delivered.length,
+          tickets: {
+            total: toBadges(keys.total), dev: toBadges(keys.dev), preview: toBadges(keys.preview),
+            staging: toBadges(keys.staging), prod: toBadges(keys.prod), delivered: toBadges(keys.delivered),
+          },
+        }))
+        .sort((a, b) => b.tested_total - a.tested_total),
+    );
   }
 
   return { dev, qa };

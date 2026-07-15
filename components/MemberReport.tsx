@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from "react";
 import type { AssigneeReport, QaReport } from "@/lib/metrics";
+import TicketBadges from "./TicketBadges";
 
 type Report = (AssigneeReport & { kind?: "dev" }) | QaReport;
 
@@ -9,30 +10,6 @@ const inputStyle: React.CSSProperties = {
   background: "var(--surface)", color: "var(--text)", border: "1px solid var(--border-strong)",
   borderRadius: "var(--radius-sm)", padding: "8px 10px", fontSize: 13, height: 36,
 };
-
-// A single ticket badge linking straight to Jira. Shared by every drill-down section below.
-function TicketBadges({ tickets }: { tickets: { key: string; url: string }[] }) {
-  return (
-    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-      {tickets.map((t) => (
-        <a
-          key={t.key}
-          href={t.url}
-          target="_blank"
-          rel="noopener noreferrer"
-          title={`Open ${t.key} in Jira`}
-          style={{
-            fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)",
-            border: "0.5px solid var(--border-strong)", borderRadius: 4, padding: "2px 7px",
-            whiteSpace: "nowrap", textDecoration: "none",
-          }}
-        >
-          {t.key}
-        </a>
-      ))}
-    </div>
-  );
-}
 
 // Collapsed by default: just the summary row (status/label + count). Click to reveal the
 // ticket-level detail (linked to Jira) without cluttering the default view.
