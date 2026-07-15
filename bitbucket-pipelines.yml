@@ -1,0 +1,45 @@
+image: node:22
+
+clone:
+  depth: full
+
+definitions:
+  services:
+    docker:
+      memory: 5120
+  steps:
+    - step: &deploy
+        name: Build and push docker image to the private registry
+        size: 2x
+        runs-on:
+          - 'self.hosted'
+          - 'linux'
+          - 'v5srv00v3'
+        services:
+          - docker
+        caches:
+          - docker
+          - node
+        script:
+          - sh generate-env-file.sh
+          - docker build --progress=plain -t $DOCKER_IMAGE_NAME:latest-$DOCKER_IMAGE_TAG_SUFFIX -t $DOCKER_IMAGE_NAME:${BITBUCKET_BUILD_NUMBER}-$DOCKER_IMAGE_TAG_SUFFIX -f Dockerfile .
+          - echo $DOCKER_REGISTRY_PASSWORD | docker login $DOCKER_REGISTRY_HOST -u $DOCKER_REGISTRY_USERNAME --password-stdin
+          - docker push $DOCKER_IMAGE_NAME:latest-$DOCKER_IMAGE_TAG_SUFFIX
+          - docker push $DOCKER_IMAGE_NAME:${BITBUCKET_BUILD_NUMBER}-$DOCKER_IMAGE_TAG_SUFFIX
+          - echo "EXPORT IMAGES USING THE FOLLOWING COMMANDS:"
+          - echo "docker pull ${DOCKER_IMAGE_NAME}:latest-${DOCKER_IMAGE_TAG_SUFFIX}"
+          - echo "docker pull ${DOCKER_IMAGE_NAME}:${BITBUCKET_BUILD_NUMBER}-${DOCKER_IMAGE_TAG_SUFFIX}"
+          - echo "docker save -o dmt_backend_${DOCKER_IMAGE_TAG_SUFFIX}.tar ${DOCKER_IMAGE_NAME}:latest-${DOCKER_IMAGE_TAG_SUFFIX} ${DOCKER_IMAGE_NAME}:${BITBUCKET_BUILD_NUMBER}-${DOCKER_IMAGE_TAG_SUFFIX}"
+          - echo "gzip dmt_backend_${DOCKER_IMAGE_TAG_SUFFIX}.tar"
+
+pipelines:
+  branches:
+    main:
+      - step:
+          <<: *deploy
+          deployment: production
+
+    staging:
+      - step:
+          <<: *deploy
+          deployment: staging

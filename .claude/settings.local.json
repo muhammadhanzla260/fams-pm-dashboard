@@ -1,0 +1,9 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(npx tsc *)",
+      "Bash(node_modules/.bin/tsc --noEmit)",
+      "Bash(curl -s \"http://127.0.0.1:3000/api/report?member=Muhammad%20Sheheryar&from=2026-07-01&to=2026-07-07\")"
+    ]
+  }
+}
