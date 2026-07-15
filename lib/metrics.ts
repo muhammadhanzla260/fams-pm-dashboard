@@ -347,6 +347,11 @@ export type AssigneeReport = {
   logged_hrs: number; // Time Tracking logged total on those tickets
   est_hrs: number; // Time Tracking original estimate on those tickets
   status_breakdown: StatusBreakdownEntry[]; // by exact status name
+  bugs_total: number; // of total_assigned, issuetype = Bug
+  bugs: { key: string; url: string }[];
+  reopened_total: number; // reopen EVENTS in [from, to] on tickets currently assigned to member
+  reopen_rate: number; // % = reopened_total / completed
+  reopened_tickets: ReopenedTicket[];
 };
 
 // One entry per distinct status; `tickets` links each ticket badge straight to Jira.
@@ -355,6 +360,13 @@ export type StatusBreakdownEntry = {
   count: number;
   category: string;
   tickets: { key: string; url: string }[];
+};
+
+export type ReopenedTicket = {
+  key: string;
+  url: string;
+  reopen_count: number;
+  last_reopened_at: string;
 };
 
 function jiraBrowseUrl(key: string): string {
@@ -377,7 +389,10 @@ export async function getAssigneeReport(member: string, from: string, to: string
     [member],
   );
   const ids = idRows.map((r) => r.account_id);
-  const empty: AssigneeReport = { member, from, to, total_assigned: 0, in_progress: 0, completed: 0, logged_hrs: 0, est_hrs: 0, status_breakdown: [] };
+  const empty: AssigneeReport = {
+    member, from, to, total_assigned: 0, in_progress: 0, completed: 0, logged_hrs: 0, est_hrs: 0,
+    status_breakdown: [], bugs_total: 0, bugs: [], reopened_total: 0, reopen_rate: 0, reopened_tickets: [],
+  };
   if (!ids.length) return empty;
 
   const projects = (process.env.JIRA_PROJECTS ?? "FM").split(",").map((s) => s.trim()).filter(Boolean).join(", ");
@@ -386,9 +401,25 @@ export async function getAssigneeReport(member: string, from: string, to: string
   // logged/est hrs are read straight from each ticket's Time Tracking (lifetime totals).
   const jql = `project IN (${projects}) AND worklogDate >= "${from}" AND worklogDate <= "${to}" AND timespent > 0 AND assignee IN (${idList})`;
 
-  const issues = await searchAll(jql, ["status", "timeoriginalestimate", "timespent"]);
+  const [issues, reopenedRows] = await Promise.all([
+    searchAll(jql, ["status", "timeoriginalestimate", "timespent", "issuetype"]),
+    // Reopen EVENTS in [from, to] on tickets currently assigned to this member, from the
+    // synced changelog (issue_transitions) — live Jira JQL can't express "was done, now isn't".
+    query<{ key: string; reopen_count: string; last_reopened_at: string }>(
+      `SELECT i.key, count(*)::int AS reopen_count, max(r.reopened_at) AS last_reopened_at
+       FROM v_reopens r
+       JOIN issues i ON i.id = r.issue_id
+       WHERE i.assignee_id = ANY($1::text[])
+         AND r.reopened_at >= $2::date AND r.reopened_at < ($3::date + interval '1 day')
+       GROUP BY i.key
+       ORDER BY last_reopened_at DESC`,
+      [ids, from, to],
+    ),
+  ]);
+
   let in_progress = 0, completed = 0, est_s = 0, logged_s = 0;
   const byStatus = new Map<string, { count: number; category: string; keys: string[] }>();
+  const bugs: { key: string; url: string }[] = [];
   for (const it of issues) {
     const name = it.fields?.status?.name ?? "Unknown";
     const cat = it.fields?.status?.statusCategory?.key ?? "new";
@@ -400,6 +431,7 @@ export async function getAssigneeReport(member: string, from: string, to: string
     e.count++;
     e.keys.push(it.key);
     byStatus.set(name, e);
+    if (it.fields?.issuetype?.name === "Bug") bugs.push({ key: it.key, url: jiraBrowseUrl(it.key) });
   }
   // Order like a board: To Do → In Progress → Done category, then by count within.
   const rank: Record<string, number> = { new: 0, indeterminate: 1, done: 2 };
@@ -412,6 +444,14 @@ export async function getAssigneeReport(member: string, from: string, to: string
     }))
     .sort((a, b) => (rank[a.category] - rank[b.category]) || b.count - a.count);
 
+  const reopened_tickets: ReopenedTicket[] = reopenedRows.map((r) => ({
+    key: r.key,
+    url: jiraBrowseUrl(r.key),
+    reopen_count: Number(r.reopen_count),
+    last_reopened_at: r.last_reopened_at,
+  }));
+  const reopened_total = reopened_tickets.reduce((sum, r) => sum + r.reopen_count, 0);
+
   return {
     member,
     from,
@@ -422,6 +462,11 @@ export async function getAssigneeReport(member: string, from: string, to: string
     logged_hrs: round1(logged_s / 3600),
     est_hrs: round1(est_s / 3600),
     status_breakdown,
+    bugs_total: bugs.length,
+    bugs,
+    reopened_total,
+    reopen_rate: completed ? round1((reopened_total / completed) * 100) : 0,
+    reopened_tickets,
   };
 }
 

@@ -10,6 +10,30 @@ const inputStyle: React.CSSProperties = {
   borderRadius: "var(--radius-sm)", padding: "8px 10px", fontSize: 13, height: 36,
 };
 
+// A single ticket badge linking straight to Jira. Shared by every drill-down section below.
+function TicketBadges({ tickets }: { tickets: { key: string; url: string }[] }) {
+  return (
+    <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
+      {tickets.map((t) => (
+        <a
+          key={t.key}
+          href={t.url}
+          target="_blank"
+          rel="noopener noreferrer"
+          title={`Open ${t.key} in Jira`}
+          style={{
+            fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)",
+            border: "0.5px solid var(--border-strong)", borderRadius: 4, padding: "2px 7px",
+            whiteSpace: "nowrap", textDecoration: "none",
+          }}
+        >
+          {t.key}
+        </a>
+      ))}
+    </div>
+  );
+}
+
 // Dates come from the shared dashboard filter (props). Member is selected here.
 // The data-fetching + rendering logic is unchanged from the verified version.
 export default function MemberReport({ members, from, to }: { members: string[]; from: string; to: string }) {
@@ -18,6 +42,8 @@ export default function MemberReport({ members, from, to }: { members: string[];
   const [loading, setLoading] = useState(false);
   const [err, setErr] = useState("");
   const reqId = useRef(0);
+  const bugsRef = useRef<HTMLDivElement>(null);
+  const reopenedRef = useRef<HTMLDivElement>(null);
 
   const run = useCallback(async () => {
     if (!member) return;
@@ -41,6 +67,9 @@ export default function MemberReport({ members, from, to }: { members: string[];
     run();
   }, [run]);
 
+  const scrollTo = (ref: React.RefObject<HTMLDivElement>) => () =>
+    ref.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+
   const cards = !data
     ? []
     : data.kind === "qa"
@@ -57,6 +86,8 @@ export default function MemberReport({ members, from, to }: { members: string[];
         { label: "Completed", value: data.completed, sub: "of those, reached Done" },
         { label: "Logged hrs", value: `${data.logged_hrs}h`, sub: "on those tickets" },
         { label: "Est. hrs", value: `${data.est_hrs}h`, sub: "on those tickets" },
+        { label: "Bugs", value: data.bugs_total, sub: "issuetype = Bug, assigned", onClick: data.bugs_total ? scrollTo(bugsRef) : undefined },
+        { label: "Reopened", value: `${data.reopened_total} (${data.reopen_rate}%)`, sub: "events this range · % of completed", onClick: data.reopened_tickets.length ? scrollTo(reopenedRef) : undefined },
       ];
 
   return (
@@ -82,13 +113,54 @@ export default function MemberReport({ members, from, to }: { members: string[];
           </div>
           <div className="kpis">
             {cards.map((c) => (
-              <div className="kpi" key={c.label}>
+              <div
+                className="kpi"
+                key={c.label}
+                onClick={c.onClick}
+                style={c.onClick ? { cursor: "pointer" } : undefined}
+                title={c.onClick ? "Click to see the tickets" : undefined}
+              >
                 <div className="label">{c.label}</div>
                 <div className="value">{String(c.value)}</div>
                 <div className="sub">{c.sub}</div>
               </div>
             ))}
           </div>
+
+          {data.kind !== "qa" && data.bugs_total > 0 && (
+            <div ref={bugsRef} style={{ marginTop: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>
+                Bugs reported ({data.bugs_total})
+              </div>
+              <div style={{ padding: "9px 12px", border: "0.5px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface)" }}>
+                <TicketBadges tickets={data.bugs} />
+              </div>
+            </div>
+          )}
+
+          {data.kind !== "qa" && data.reopened_tickets.length > 0 && (
+            <div ref={reopenedRef} style={{ marginTop: 18 }}>
+              <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 10 }}>
+                Reopened tickets ({data.reopened_total} event{data.reopened_total === 1 ? "" : "s"} · {data.reopen_rate}% of completed)
+              </div>
+              <div style={{ display: "grid", gap: 8 }}>
+                {data.reopened_tickets.map((t) => (
+                  <div
+                    key={t.key}
+                    style={{
+                      display: "flex", alignItems: "center", gap: 10, padding: "9px 12px", flexWrap: "wrap",
+                      border: "0.5px solid var(--border)", borderRadius: "var(--radius-sm)", background: "var(--surface)",
+                    }}
+                  >
+                    <TicketBadges tickets={[{ key: t.key, url: t.url }]} />
+                    <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
+                      reopened {t.reopen_count}x · last {new Date(t.last_reopened_at).toISOString().slice(0, 10)}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           {data.status_breakdown.length > 0 && (
             <div style={{ marginTop: 18 }}>
@@ -116,24 +188,7 @@ export default function MemberReport({ members, from, to }: { members: string[];
                       <span style={{ fontSize: 13, color: "var(--text-secondary)" }}>
                         {s.count} work item{s.count === 1 ? "" : "s"}
                       </span>
-                      <div style={{ display: "flex", gap: 6, flexWrap: "wrap" }}>
-                        {s.tickets.map((t) => (
-                          <a
-                            key={t.key}
-                            href={t.url}
-                            target="_blank"
-                            rel="noopener noreferrer"
-                            title={`Open ${t.key} in Jira`}
-                            style={{
-                              fontSize: 11.5, fontWeight: 500, color: "var(--text-secondary)",
-                              border: "0.5px solid var(--border-strong)", borderRadius: 4, padding: "2px 7px",
-                              whiteSpace: "nowrap", textDecoration: "none",
-                            }}
-                          >
-                            {t.key}
-                          </a>
-                        ))}
-                      </div>
+                      <TicketBadges tickets={s.tickets} />
                     </div>
                   );
                 })}
