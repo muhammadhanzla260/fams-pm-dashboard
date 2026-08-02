@@ -14,6 +14,9 @@ export type Kpis = {
   est_accuracy: number | null; // % logged/estimated over issues with both
   tracking_coverage: number; // % team issues with any estimate or logged time
   cycle_days: number | null; // MEDIAN first-in-progress -> done, in days
+  mttr_hours: number | null; // MEAN repair time (first-in-progress -> first-done) over hotfix issues, in hours
+  mttr_median_hours: number | null; // MEDIAN of the same population — robust to outliers
+  mttr_sample: number; // # of repaired hotfix issues the MTTR is measured over
   hotfixes: number; // team issues flagged hotfix
   hotfix_rate: number; // % of completed that are hotfixes
   person_days: number; // team logged time / 6h
@@ -59,6 +62,15 @@ export async function getKpis(): Promise<Kpis> {
       (SELECT coalesce(sum(original_estimate_s),0) FROM tracked_pairs)              AS est_both,
       (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY c.cycle_days)
          FROM v_cycle c JOIN team_issues i ON i.id = c.issue_id)                    AS cycle_median,
+      -- MTTR = repair-only clock (first in-progress -> first done, via v_cycle) over the
+      -- hotfix failure set. cycle_days is in days; *24 -> hours. Mean is the headline MTTR,
+      -- median guards against a single stuck fix skewing it, sample is the n it's over.
+      (SELECT avg(c.cycle_days) * 24
+         FROM v_cycle c JOIN team_issues i ON i.id = c.issue_id WHERE i.is_hotfix)  AS mttr_mean_h,
+      (SELECT percentile_cont(0.5) WITHIN GROUP (ORDER BY c.cycle_days) * 24
+         FROM v_cycle c JOIN team_issues i ON i.id = c.issue_id WHERE i.is_hotfix)  AS mttr_median_h,
+      (SELECT count(*) FROM v_cycle c JOIN team_issues i ON i.id = c.issue_id
+         WHERE i.is_hotfix)                                                         AS mttr_n,
       (SELECT count(*) FROM team_issues WHERE is_hotfix)                            AS hotfixes,
       (SELECT coalesce(sum(time_spent_s),0) FROM worklogs WHERE author_id IN ${ROSTER}) AS logged_total
   `);
@@ -76,6 +88,9 @@ export async function getKpis(): Promise<Kpis> {
     est_accuracy: Number(r.est_both) > 0 ? round1((Number(r.logged_both) / Number(r.est_both)) * 100) : null,
     tracking_coverage: created ? round1((Number(r.tracked) / created) * 100) : 0,
     cycle_days: r.cycle_median != null ? round1(Number(r.cycle_median)) : null,
+    mttr_hours: r.mttr_mean_h != null ? round1(Number(r.mttr_mean_h)) : null,
+    mttr_median_hours: r.mttr_median_h != null ? round1(Number(r.mttr_median_h)) : null,
+    mttr_sample: Number(r.mttr_n) || 0,
     hotfixes,
     hotfix_rate: completed ? round1((hotfixes / completed) * 100) : 0,
     person_days: Math.round(Number(r.logged_total) / (6 * 3600)),
